@@ -6,7 +6,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Smart AI Interview Practice Platform"
     
     # Database
-    DATABASE_URL: str = "sqlite:///./interview_practice.db"
+    DATABASE_URL: str = "sqlite:////tmp/interview_practice.db" if os.environ.get("VERCEL") else "sqlite:///./interview_practice.db"
+
     
     # JWT Authentication
     JWT_SECRET: str = "supersecretkey_interview_practice_platform_12345!"
