@@ -3,7 +3,7 @@ import json
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any
 
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -29,6 +29,47 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# WebSocket Signaling & Collaboration Connection Manager
+class ConnectionManager:
+    def __init__(self):
+        # Maps session_id -> list of WebSockets
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, session_id: str):
+        await websocket.accept()
+        if session_id not in self.active_connections:
+            self.active_connections[session_id] = []
+        self.active_connections[session_id].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, session_id: str):
+        if session_id in self.active_connections:
+            self.active_connections[session_id].remove(websocket)
+            if not self.active_connections[session_id]:
+                del self.active_connections[session_id]
+
+    async def broadcast(self, message: str, session_id: str, exclude_websocket: WebSocket = None):
+        if session_id in self.active_connections:
+            for connection in self.active_connections[session_id]:
+                if connection != exclude_websocket:
+                    try:
+                        await connection.send_text(message)
+                    except Exception:
+                        pass
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/live/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    await manager.connect(websocket, session_id)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Broadcast the data to other clients in the same session
+            await manager.broadcast(data, session_id, exclude_websocket=websocket)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, session_id)
+
 
 # Startup event to seed database
 @app.on_event("startup")
